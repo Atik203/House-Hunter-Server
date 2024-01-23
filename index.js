@@ -1,6 +1,7 @@
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
+const bcrypt = require("bcrypt");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
@@ -44,25 +45,88 @@ async function run() {
   };
 
   const userCollection = client.db("House-Hunter").collection("Users");
-  const taskCollection = client.db("Task-Management").collection("Tasks");
 
   try {
-    app.post("/users", async (req, res) => {
+    app.post("/register", async (req, res) => {
       try {
         const user = req.body;
         const query = { email: user.email };
+        // Check if the user already exists
         const isExist = await userCollection.findOne(query);
         if (isExist) {
           return res.send({ message: "user exists", insertedId: null });
         }
+        // Hash the password before storing it in the database
+        const hashedPassword = await bcrypt.hash(user.password, 10);
+        user.password = hashedPassword;
+
+        // Insert the user into the database
         const result = await userCollection.insertOne(user);
+
+        // Create a JWT token for the registered user
+        const token = jwt.sign(
+          { userId: result.insertedId },
+          process.env.ACCESS_TOKEN_SECRET,
+          { expiresIn: "1h" }
+        );
+        // Set the token in the response cookie
+        res.cookie("token", token, { httpOnly: true });
+        // Send a success response
         res.send(result);
       } catch (error) {
-        console.log(error);
-
-        res.status(500).json({ error: "Internal server error" });
+        console.error(error);
+        return res.send({ message: "error", insertedId: undefined });
       }
     });
+
+    app.post("/userLogin", async (req, res) => {
+      try {
+        const { email, password } = req.body;
+        // Check if the user exists
+        const user = await userCollection.findOne({ email });
+        if (!user) {
+          return res.send({ message: "User not found", token: null });
+        }
+        // Compare the provided password with the stored hashed password
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        if (!passwordMatch) {
+          return res.send({ message: "Invalid password", token: null });
+        }
+        // Create a JWT token for the authenticated user
+        const token = jwt.sign(
+          { userId: user._id },
+          process.env.ACCESS_TOKEN_SECRET,
+          {
+            expiresIn: "1h",
+          }
+        );
+        // Set the token in the response cookie
+        res.cookie("token", token, { httpOnly: true });
+        // Send a success response
+        res.send({ message: "Login successful", token });
+      } catch (error) {
+        console.error(error);
+        return res.send({ message: "Error", token: null });
+      }
+    });
+
+    // Add this route before the `run` function in your backend code
+    app.get("/authenticate", verifyToken, async (req, res) => {
+      try {
+        // The user object is available in the `req` object due to the `verifyToken` middleware
+        const currentUser = req.user;
+        console.log(currentUser);
+
+        // You can customize the response format as needed
+        res.send({ success: true, user: currentUser });
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .send({ success: false, message: "Internal Server Error" });
+      }
+    });
+
     app.post("/jwt", async (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
@@ -85,73 +149,6 @@ async function run() {
           sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
         })
         .send({ success: true });
-    });
-    app.post("/tasks", async (req, res) => {
-      const data = req.body;
-      const result = await taskCollection.insertOne(data);
-      res.send(result);
-    });
-
-    app.get("/task/:email", async (req, res) => {
-      const email = req.params.email;
-      const query = { email: email };
-      const result = await taskCollection.find(query).toArray();
-      res.send(result);
-    });
-
-    app.delete("/task-delete/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await taskCollection.deleteOne(query);
-      res.send(result);
-    });
-
-    app.patch("/update-status/:id", async (req, res) => {
-      const taskId = req.params.id;
-      const newStatus = req.body.newStatus;
-      const query = { _id: new ObjectId(taskId) };
-      const update = { $set: { status: newStatus } };
-      try {
-        const result = await taskCollection.updateOne(query, update);
-        res.send(result);
-      } catch (error) {
-        console.error(error);
-        res
-          .status(500)
-          .json({ success: false, message: "Internal server error" });
-      }
-    });
-
-    app.get("/singleTask/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await taskCollection.findOne(query);
-      res.send(result);
-    });
-    app.patch("/update-task/:id", async (req, res) => {
-      const taskId = req.params.id;
-      const { name, description, priority, category, deadline } = req.body;
-      console.log(name);
-      const query = { _id: new ObjectId(taskId) };
-      const update = {
-        $set: {
-          name: name,
-          description: description,
-          priority: priority,
-          category: category,
-          deadline: deadline,
-        },
-      };
-
-      try {
-        const result = await taskCollection.updateOne(query, update);
-        res.send(result);
-      } catch (error) {
-        console.error(error);
-        res
-          .status(500)
-          .json({ success: false, message: "Internal server error" });
-      }
     });
 
     await client.db("admin").command({ ping: 1 });
