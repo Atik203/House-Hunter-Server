@@ -45,6 +45,7 @@ async function run() {
   };
 
   const userCollection = client.db("House-Hunter").collection("Users");
+  const houseCollection = client.db("House-Hunter").collection("Houses");
 
   try {
     app.post("/register", async (req, res) => {
@@ -145,6 +146,13 @@ async function run() {
           .status(500)
           .send({ success: false, message: "Internal Server Error" });
       }
+    });
+
+    app.post("/houses", async (req, res) => {
+      const house = req.body;
+      console.log(house);
+      const result = await houseCollection.insertOne(house);
+      res.send(result);
     });
 
     await client.db("admin").command({ ping: 1 });
