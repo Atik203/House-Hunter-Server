@@ -51,27 +51,24 @@ async function run() {
       try {
         const user = req.body;
         const query = { email: user.email };
-        // Check if the user already exists
+
         const isExist = await userCollection.findOne(query);
         if (isExist) {
           return res.send({ message: "user exists", insertedId: null });
         }
-        // Hash the password before storing it in the database
+
         const hashedPassword = await bcrypt.hash(user.password, 10);
         user.password = hashedPassword;
 
-        // Insert the user into the database
         const result = await userCollection.insertOne(user);
 
-        // Create a JWT token for the registered user
         const token = jwt.sign(
           { userId: result.insertedId },
           process.env.ACCESS_TOKEN_SECRET,
           { expiresIn: "1h" }
         );
-        // Set the token in the response cookie
+
         res.cookie("token", token, { httpOnly: true });
-        // Send a success response
         res.send(result);
       } catch (error) {
         console.error(error);
@@ -82,17 +79,14 @@ async function run() {
     app.post("/userLogin", async (req, res) => {
       try {
         const { email, password } = req.body;
-        // Check if the user exists
         const user = await userCollection.findOne({ email });
         if (!user) {
           return res.send({ message: "User not found", token: null });
         }
-        // Compare the provided password with the stored hashed password
         const passwordMatch = await bcrypt.compare(password, user.password);
         if (!passwordMatch) {
           return res.send({ message: "Invalid password", token: null });
         }
-        // Create a JWT token for the authenticated user
         const token = jwt.sign(
           { userId: user._id },
           process.env.ACCESS_TOKEN_SECRET,
@@ -100,30 +94,11 @@ async function run() {
             expiresIn: "1h",
           }
         );
-        // Set the token in the response cookie
         res.cookie("token", token, { httpOnly: true });
-        // Send a success response
         res.send({ message: "Login successful", token });
       } catch (error) {
         console.error(error);
         return res.send({ message: "Error", token: null });
-      }
-    });
-
-    // Add this route before the `run` function in your backend code
-    app.get("/authenticate", verifyToken, async (req, res) => {
-      try {
-        // The user object is available in the `req` object due to the `verifyToken` middleware
-        const currentUser = req.user;
-        console.log(currentUser);
-
-        // You can customize the response format as needed
-        res.send({ success: true, user: currentUser });
-      } catch (error) {
-        console.error(error);
-        res
-          .status(500)
-          .send({ success: false, message: "Internal Server Error" });
       }
     });
 
@@ -149,6 +124,27 @@ async function run() {
           sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
         })
         .send({ success: true });
+    });
+
+    app.get("/userByEmail/:email", async (req, res) => {
+      try {
+        const userEmail = req.params.email;
+        console.log(userEmail);
+        const user = await userCollection.findOne({ email: userEmail });
+
+        if (!user) {
+          return res
+            .status(404)
+            .send({ success: false, message: "User not found" });
+        }
+        console.log(user);
+        res.send(user);
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .send({ success: false, message: "Internal Server Error" });
+      }
     });
 
     await client.db("admin").command({ ping: 1 });
